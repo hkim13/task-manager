@@ -44,9 +44,16 @@ interface Task {
 interface TaskCreationModalProps {
   open?: boolean;
   onClose?: () => void;
+  onTaskCreated?: () => void;
   isDarkMode?: boolean;
   selectedDate?: Date;
   editingTask?: Task | null;
+}
+
+interface Subtask {
+  id: string;
+  text: string;
+  completed: boolean;
 }
 
 const defaultCategories = [
@@ -72,31 +79,42 @@ const presetColors = [
 ];
 
 export default function TaskCreationModal({
-  open = true,
+  open = false,
   onClose = () => {},
-  isDarkMode = true,
+  onTaskCreated = () => {},
+  isDarkMode = false,
   selectedDate = new Date(),
   editingTask = null,
 }: TaskCreationModalProps) {
+  // Helper function to format date without timezone issues
+  const formatDateForInput = (date: Date) => {
+    // Use UTC to avoid timezone shifts
+    const utcDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+    return utcDate.toISOString().split('T')[0];
+  };
+
   const [taskTitle, setTaskTitle] = useState("");
   const [duration, setDuration] = useState("");
-  const [taskDate, setTaskDate] = useState(
-    selectedDate.toISOString().split("T")[0],
-  );
+  const [taskDate, setTaskDate] = useState(() => formatDateForInput(selectedDate));
   const [selectedTime, setSelectedTime] = useState("09:00");
   const [category, setCategory] = useState("Work");
-  const [customCategories, setCustomCategories] = useState(defaultCategories);
-  const [showCustomCategory, setShowCustomCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [newCategoryColor, setNewCategoryColor] = useState("#3b82f6");
-  const [showCustomColorPicker, setShowCustomColorPicker] = useState(false);
   const [hasRepeat, setHasRepeat] = useState(false);
   const [repeatType, setRepeatType] = useState("daily");
   const [customRepeatInterval, setCustomRepeatInterval] = useState("1");
   const [hasEndDate, setHasEndDate] = useState(false);
   const [repeatEndDate, setRepeatEndDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const [newSubtask, setNewSubtask] = useState("");
+  const [showEditScopeModal, setShowEditScopeModal] = useState(false);
+  const [editScope, setEditScope] = useState<"this" | "future" | "all">("this");
+  const [showDeleteScopeModal, setShowDeleteScopeModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [customCategories, setCustomCategories] = useState(defaultCategories);
+  const [showCustomCategory, setShowCustomCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryColor, setNewCategoryColor] = useState("#3b82f6");
+  const [showCustomColorPicker, setShowCustomColorPicker] = useState(false);
   const supabase = createClient();
 
   const durationPresets = [
@@ -109,7 +127,7 @@ export default function TaskCreationModal({
   // Update the date when selectedDate prop changes
   useEffect(() => {
     if (selectedDate) {
-      setTaskDate(selectedDate.toISOString().split("T")[0]);
+      setTaskDate(formatDateForInput(selectedDate));
     }
   }, [selectedDate]);
 
@@ -118,7 +136,9 @@ export default function TaskCreationModal({
     if (editingTask) {
       setTaskTitle(editingTask.title);
       setDuration(editingTask.duration.toString());
-      setTaskDate(editingTask.start_date);
+      // Ensure the date is formatted correctly for the input
+      const taskDate = new Date(editingTask.start_date + 'T00:00:00');
+      setTaskDate(formatDateForInput(taskDate));
       setSelectedTime(editingTask.start_time);
       setCategory(editingTask.category);
       setHasRepeat(editingTask.has_repeat || false);
@@ -131,7 +151,7 @@ export default function TaskCreationModal({
       // Reset form for new task
       setTaskTitle("");
       setDuration("");
-      setTaskDate(selectedDate.toISOString().split("T")[0]);
+      setTaskDate(formatDateForInput(selectedDate));
       setSelectedTime("09:00");
       setCategory("Work");
       setHasRepeat(false);
@@ -228,6 +248,8 @@ export default function TaskCreationModal({
         }
       }
 
+      // Call the callback to refresh tasks
+      onTaskCreated();
       onClose();
     } catch (error) {
       console.error("Error:", error);

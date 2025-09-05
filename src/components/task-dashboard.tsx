@@ -18,6 +18,7 @@ import {
   Edit,
   Trash2,
 } from "lucide-react";
+import { format } from "date-fns";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import {
@@ -56,6 +57,13 @@ export default function TaskDashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const supabase = createClient();
 
+  // Helper function to format date without timezone issues
+  const formatDateForDatabase = (date: Date) => {
+    // Use UTC to avoid timezone shifts
+    const utcDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+    return utcDate.toISOString().split('T')[0];
+  };
+
   const fetchTasks = async (date: Date) => {
     try {
       const {
@@ -63,7 +71,7 @@ export default function TaskDashboard() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      const dateString = date.toISOString().split("T")[0];
+      const dateString = formatDateForDatabase(date);
 
       // Fetch tasks for the specific date
       const { data: directTasks, error: directError } = await supabase
@@ -117,7 +125,7 @@ export default function TaskDashboard() {
     targetDate: Date,
   ): Task[] => {
     const instances: Task[] = [];
-    const targetDateString = targetDate.toISOString().split("T")[0];
+    const targetDateString = formatDateForDatabase(targetDate);
 
     repeatingTasks.forEach((task) => {
       const startDate = new Date(task.start_date);
@@ -152,22 +160,28 @@ export default function TaskDashboard() {
     startDate: Date,
     targetDate: Date,
   ): boolean => {
-    const daysDiff = Math.floor(
-      (targetDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
-    );
+    // Parse dates from strings to ensure consistent handling
+    const taskStartDate = new Date(task.start_date + 'T00:00:00');
+    const start = new Date(taskStartDate.getFullYear(), taskStartDate.getMonth(), taskStartDate.getDate());
+    const target = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+    
+    const daysDiff = Math.floor((target.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 
     switch (task.repeat_type) {
       case "daily":
         return daysDiff > 0;
       case "weekly":
-        return daysDiff > 0 && daysDiff % 7 === 0;
+        // For weekly: must be same day of week AND exactly 7, 14, 21... days later
+        return daysDiff > 0 && 
+               daysDiff % 7 === 0 && 
+               start.getDay() === target.getDay();
       case "monthly":
         // Check if it's the same day of month
         return (
           daysDiff > 0 &&
-          startDate.getDate() === targetDate.getDate() &&
-          (targetDate.getMonth() !== startDate.getMonth() ||
-            targetDate.getFullYear() !== startDate.getFullYear())
+          start.getDate() === target.getDate() &&
+          (target.getMonth() !== start.getMonth() ||
+            target.getFullYear() !== start.getFullYear())
         );
       case "custom":
         const interval = task.repeat_interval || 1;
@@ -273,12 +287,26 @@ export default function TaskDashboard() {
   };
 
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    // Use consistent date formatting that works the same on server and client
+    // Avoid any timezone-related functions
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+    
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    const dayNames = [
+      'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+    ];
+    
+    // Use the original date's day of week directly to avoid timezone issues
+    const dayOfWeek = dayNames[date.getDay()];
+    const monthName = monthNames[month];
+    
+    return `${dayOfWeek}, ${monthName} ${day}, ${year}`;
   };
 
   const isToday = (date: Date) => {
